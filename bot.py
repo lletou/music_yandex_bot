@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from yandex_music import Client
@@ -17,12 +18,21 @@ if not TELEGRAM_TOKEN or not YANDEX_TOKEN:
     exit(1)
 
 
+def extract_track_id(url: str) -> str:
+    """Извлекает ID трека из URL Яндекс.Музыки"""
+    # Ищем паттерн /track/ЧИСЛО
+    match = re.search(r'/track/(\d+)', url)
+    if match:
+        return match.group(1)
+    return None
+
+
 # --- Команда /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Привет! Я бот для Яндекс.Музыки.\n\n"
+        "👋 Привет! Я бот для Яндекс Музыки!\n\n"
         "Отправь мне ссылку на трек, и я пришлю его название, исполнителя и длительность.\n"
-        "Пример: https://music.yandex.ru/album/1234567/track/7654321"
+        "Пример: https://music.yandex.ru/album/35390921/track/136101918"
     )
 
 
@@ -34,10 +44,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Отправляем уведомление о наборе текста
     await update.message.chat.send_action(action="typing")
 
+    # Извлекаем ID трека из URL
+    track_id = extract_track_id(url)
+    if not track_id:
+        await update.message.reply_text(
+            "❌ Не удалось найти ID трека в ссылке.\n"
+            "Убедитесь, что ссылка содержит /track/число"
+        )
+        return
+
     try:
         # Создаём клиент Яндекс.Музыки
         client = Client(YANDEX_TOKEN).init()
-        track = client.track(url)
+
+        # Используем метод tracks() (с s на конце), который принимает список ID
+        # Метод возвращает список треков
+        tracks = client.tracks([track_id])
+
+        if not tracks:
+            await update.message.reply_text("❌ Трек не найден")
+            return
+
+        track = tracks[0]  # Берем первый (и единственный) трек
 
         # Получаем данные
         title = track.title
@@ -62,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ошибка: {e}")
         await update.message.reply_text(
             "❌ Не удалось найти информацию по этой ссылке.\n"
-            "Пожалуйста, убедитесь, что ссылка ведёт именно на трек в Яндекс.Музыке."
+            "Пожалуйста, убедитесь, что ссылка ведёт именно на трек в Яндекс Музыке"
         )
 
 
